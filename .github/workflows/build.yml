@@ -1,0 +1,61 @@
+name: Build YouTube-X (.dylib)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-13
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install Theos & PSHeader
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+          echo "$HOME/theos/bin" >> $GITHUB_PATH
+          
+          cd $HOME/theos/include
+          git clone https://github.com/PoomSmart/PSHeader.git PSHeader_tmp
+          mv PSHeader_tmp/* . && rm -rf PSHeader_tmp
+
+      - name: Download iOS SDK
+        run: |
+          mkdir -p $HOME/theos/sdks
+          curl -LO https://github.com/theos/sdks/raw/master/iPhoneOS16.5.sdk.tar.xz
+          tar -xf iPhoneOS16.5.sdk.tar.xz -C $HOME/theos/sdks/
+          rm iPhoneOS16.5.sdk.tar.xz
+
+      - name: Compile Tweak
+        env:
+          THEOS: ${{ env.THEOS }}
+        run: |
+          export ARCHS="arm64"
+          export TARGET="iphone:clang:latest:14.0"
+          
+          make clean
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+          
+          mkdir -p build_output
+          find .theos/obj/ -name "*.dylib" -exec cp {} build_output/ \;
+          cp packages/*.deb build_output/ 2>/dev/null || true
+
+      - name: Upload to Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ github.run_number }}"
+          name: "YouTube-X Build #${{ github.run_number }}"
+          draft: true
+          prerelease: false
+          files: |
+            build_output/*.dylib
+            build_output/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
